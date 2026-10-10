@@ -27,6 +27,10 @@ class TuyaSelectEntityDescription(TuyaEntityDescription, SelectEntityDescription
     """Describes a Tuya select entity."""
 
 
+EXTENDED_DEHUMIDIFIER_PRODUCT_ID = "i9b8beodunqqzh0t"
+EXTENDED_DEHUMIDIFIER_TARGETS = tuple(str(value) for value in range(20, 96, 5))
+
+
 SELECTS: dict[DeviceCategory, tuple[TuyaSelectEntityDescription, ...]] = {
     DeviceCategory.BH: (
         TuyaSelectEntityDescription(
@@ -446,11 +450,20 @@ class TuyaSelectEntity(TuyaEntity, SelectEntity):
         super().__init__(device, device_manager, description)
         self._dpcode_wrapper = definition.select_wrapper
         self._attr_options = definition.select_wrapper.options
+        self._extended_dehumidifier_target = (
+            device.product_id == EXTENDED_DEHUMIDIFIER_PRODUCT_ID
+            and description.key == DPCode.DEHUMIDITY_SET_ENUM
+        )
+        if self._extended_dehumidifier_target:
+            self._attr_options = EXTENDED_DEHUMIDIFIER_TARGETS
 
     @property
     @override
     def current_option(self) -> str | None:
         """Return the selected entity option to represent the entity state."""
+        if self._extended_dehumidifier_target:
+            value = self.device.status.get(DPCode.DEHUMIDITY_SET_ENUM)
+            return str(value) if value is not None else None
         return self._read_wrapper(self._dpcode_wrapper)
 
     @override
@@ -471,4 +484,11 @@ class TuyaSelectEntity(TuyaEntity, SelectEntity):
     @override
     async def async_select_option(self, option: str) -> None:
         """Change the selected option."""
+        if self._extended_dehumidifier_target:
+            if option not in EXTENDED_DEHUMIDIFIER_TARGETS:
+                raise ValueError(f"Unsupported dehumidifier target: {option}")
+            await self._async_send_commands(
+                [{"code": DPCode.DEHUMIDITY_SET_ENUM, "value": option}]
+            )
+            return
         await self._async_send_wrapper_updates(self._dpcode_wrapper, option)
